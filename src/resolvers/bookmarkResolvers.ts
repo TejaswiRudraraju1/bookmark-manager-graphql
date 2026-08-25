@@ -12,7 +12,7 @@ export const bookmarkResolvers = {
   Query: {
     bookmarks: async (
       _parent: unknown,
-      _args: {
+      args: {
         folderId?: string | null;
         search?: string | null;
         take?: number | null;
@@ -20,8 +20,16 @@ export const bookmarkResolvers = {
       },
       { prisma }: GraphQLContext
     ): Promise<GQLBookmarkPage> => {
-      // Implemented in Milestones 5 & 6
-      const items = await prisma.bookmark.findMany();
+      const items = await prisma.bookmark.findMany({
+        where: {
+          ...(args.folderId != null && { folderId: args.folderId }),
+          ...(args.search != null && {
+            title: { contains: args.search, mode: "insensitive" },
+          }),
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      });
+
       return { items, nextCursor: null };
     },
   },
