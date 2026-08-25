@@ -13,6 +13,8 @@ import {
   validateTake,
   buildCursorWhere,
 } from "../lib/pagination.ts";
+import { notFound } from "../lib/errors.ts";
+import { validateTitle, validateUrl } from "../validation/bookmarkValidation.ts";
 
 export const bookmarkResolvers = {
   Query: {
@@ -28,11 +30,9 @@ export const bookmarkResolvers = {
     ): Promise<GQLBookmarkPage> => {
       const limit = validateTake(args.take);
 
-      // Decode cursor if provided
       const cursorWhere =
         args.cursor != null ? buildCursorWhere(decodeCursor(args.cursor)) : {};
 
-      // Build filter clauses
       const filterWhere = {
         ...(args.folderId != null && { folderId: args.folderId }),
         ...(args.search != null && {
@@ -40,7 +40,6 @@ export const bookmarkResolvers = {
         }),
       };
 
-      // Fetch limit+1 to determine whether another page exists
       const rows = await prisma.bookmark.findMany({
         where: { AND: [filterWhere, cursorWhere] },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -66,8 +65,8 @@ export const bookmarkResolvers = {
       { input }: { input: CreateFolderInput },
       { prisma }: GraphQLContext
     ): Promise<GQLFolder> => {
-      // Implemented in Milestone 7
-      return prisma.folder.create({ data: { name: input.name } });
+      const name = validateTitle(input.name, "Folder name");
+      return prisma.folder.create({ data: { name } });
     },
 
     createBookmark: async (
@@ -75,10 +74,21 @@ export const bookmarkResolvers = {
       { input }: { input: CreateBookmarkInput },
       { prisma }: GraphQLContext
     ): Promise<GQLBookmark> => {
-      // Implemented in Milestone 7
+      const title = validateTitle(input.title, "Bookmark title");
+      validateUrl(input.url);
+
+      // Verify the folder exists before attempting the insert
+      const folder = await prisma.folder.findUnique({
+        where: { id: input.folderId },
+        select: { id: true },
+      });
+      if (folder === null) {
+        throw notFound("Folder not found.");
+      }
+
       return prisma.bookmark.create({
         data: {
-          title: input.title,
+          title,
           url: input.url,
           tags: input.tags ?? [],
           folderId: input.folderId,
@@ -91,16 +101,26 @@ export const bookmarkResolvers = {
       { id, input }: { id: string; input: UpdateBookmarkInput },
       { prisma }: GraphQLContext
     ): Promise<GQLBookmark> => {
-      // Implemented in Milestone 7
-      // Strip nulls — Prisma update data must not contain null for non-nullable fields
-      const data: {
-        title?: string;
-        url?: string;
-        tags?: string[];
-      } = {};
-      if (input.title != null) data.title = input.title;
-      if (input.url != null) data.url = input.url;
-      if (input.tags != null) data.tags = input.tags;
+      const existing = await prisma.bookmark.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (existing === null) {
+        throw notFound("Bookmark not found.");
+      }
+
+      const data: { title?: string; url?: string; tags?: string[] } = {};
+
+      if (input.title != null) {
+        data.title = validateTitle(input.title, "Bookmark title");
+      }
+      if (input.url != null) {
+        validateUrl(input.url);
+        data.url = input.url;
+      }
+      if (input.tags != null) {
+        data.tags = input.tags;
+      }
 
       return prisma.bookmark.update({ where: { id }, data });
     },
@@ -110,7 +130,14 @@ export const bookmarkResolvers = {
       { id }: { id: string },
       { prisma }: GraphQLContext
     ): Promise<boolean> => {
-      // Implemented in Milestone 7
+      const existing = await prisma.bookmark.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (existing === null) {
+        throw notFound("Bookmark not found.");
+      }
+
       await prisma.bookmark.delete({ where: { id } });
       return true;
     },
@@ -120,7 +147,18 @@ export const bookmarkResolvers = {
       { id, folderId }: { id: string; folderId: string },
       { prisma }: GraphQLContext
     ): Promise<GQLBookmark> => {
-      // Implemented in Milestone 7
+      const [bookmark, folder] = await Promise.all([
+        prisma.bookmark.findUnique({ where: { id }, select: { id: true } }),
+        prisma.folder.findUnique({ where: { id: folderId }, select: { id: true } }),
+      ]);
+
+      if (bookmark === null) {
+        throw notFound("Bookmark not found.");
+      }
+      if (folder === null) {
+        throw notFound("Folder not found.");
+      }
+
       return prisma.bookmark.update({ where: { id }, data: { folderId } });
     },
   },
