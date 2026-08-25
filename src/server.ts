@@ -25,6 +25,7 @@ const yoga = createYoga<GraphQLContext>({
       Mutation: {
         ...bookmarkResolvers.Mutation,
       },
+      Folder: folderResolvers.Folder,
     },
   }),
   context: () => ({ prisma }),
