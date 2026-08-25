@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+
+# Prisma generated client
+# (keep prisma/migrations tracked)
+
+# Bun lockfile (keep for reproducibility)
+# bun.lockb  <-- intentionally tracked
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Test coverage
+coverage/
