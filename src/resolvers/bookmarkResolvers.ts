@@ -7,6 +7,12 @@ import type {
   CreateBookmarkInput,
   UpdateBookmarkInput,
 } from "../types/resolvers.ts";
+import {
+  encodeCursor,
+  decodeCursor,
+  validateTake,
+  buildCursorWhere,
+} from "../lib/pagination.ts";
 
 export const bookmarkResolvers = {
   Query: {
@@ -20,17 +26,37 @@ export const bookmarkResolvers = {
       },
       { prisma }: GraphQLContext
     ): Promise<GQLBookmarkPage> => {
-      const items = await prisma.bookmark.findMany({
-        where: {
-          ...(args.folderId != null && { folderId: args.folderId }),
-          ...(args.search != null && {
-            title: { contains: args.search, mode: "insensitive" },
-          }),
-        },
+      const limit = validateTake(args.take);
+
+      // Decode cursor if provided
+      const cursorWhere =
+        args.cursor != null ? buildCursorWhere(decodeCursor(args.cursor)) : {};
+
+      // Build filter clauses
+      const filterWhere = {
+        ...(args.folderId != null && { folderId: args.folderId }),
+        ...(args.search != null && {
+          title: { contains: args.search, mode: "insensitive" as const },
+        }),
+      };
+
+      // Fetch limit+1 to determine whether another page exists
+      const rows = await prisma.bookmark.findMany({
+        where: { AND: [filterWhere, cursorWhere] },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: limit + 1,
       });
 
-      return { items, nextCursor: null };
+      const hasNextPage = rows.length > limit;
+      const items: GQLBookmark[] = hasNextPage ? rows.slice(0, limit) : rows;
+
+      const lastItem = items[items.length - 1];
+      const nextCursor =
+        hasNextPage && lastItem != null
+          ? encodeCursor(lastItem.createdAt, lastItem.id)
+          : null;
+
+      return { items, nextCursor };
     },
   },
 
